@@ -99,6 +99,7 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
     print_status("Upgrading touchpad drivers")
     chroot("apt-get remove -y xserver-xorg-input-synaptics")
     chroot("apt-get install -y xserver-xorg-input-libinput")
+    chroot("apt-get install -y firefox")
 
     print_status("Ubuntu setup complete")
 
