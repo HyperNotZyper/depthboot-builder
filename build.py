@@ -97,14 +97,6 @@ def download_kernel(kernel_type: str, dev_release: bool, files: list = ["bzImage
                     urlretrieve(f"{url}modules-stable.tar.xz", filename="/tmp/depthboot-build/modules.tar.xz")
                 if "headers" in files:
                     urlretrieve(f"{url}headers-stable.tar.xz", filename="/tmp/depthboot-build/headers.tar.xz")
-            case "alt":
-                print_status("Downloading alt kernel")
-                if "bzImage" in files:
-                    urlretrieve(f"{url}bzImage-alt", filename="/tmp/depthboot-build/bzImage")
-                if "modules" in files:
-                    urlretrieve(f"{url}modules-alt.tar.xz", filename="/tmp/depthboot-build/modules.tar.xz")
-                if "headers" in files:
-                    urlretrieve(f"{url}headers-alt.tar.xz", filename="/tmp/depthboot-build/headers.tar.xz")
             case "exp":
                 print_status("Downloading experimental 5.15 kernel")
                 if "bzImage" in files:
@@ -162,12 +154,18 @@ def download_rootfs(distro_name: str, distro_version: str) -> None:
                             f"{distro_version}.tar.xz", filename="/tmp/depthboot-build/fedora-rootfs.tar.xz")
                 stop_download_progress()
             case "pop-os":
-                print_status(f"Downloading pop-os rootfs from github")
-                start_download_progress("/tmp/depthboot-build/popos-rootfs.tar.xz")
-                urlretrieve(
-                    f"https://github.com/eupnea-linux/popos-rootfs/releases/latest/download/popos-rootfs.tar.xz",
-                    filename="/tmp/depthboot-build/popos-rootfs.tar.xz")
+                print_status(f"Downloading split pop-os rootfs from github")
+                start_download_progress("/tmp/depthboot-build/popos-rootfs.split.aa")
+                urlretrieve("https://github.com/eupnea-linux/popos-rootfs/releases/latest/download/popos-rootfs."
+                            "split.aa", filename="/tmp/depthboot-build/popos-rootfs.split.aa")
                 stop_download_progress()
+                start_download_progress("/tmp/depthboot-build/popos-rootfs.split.ab")
+                urlretrieve("https://github.com/eupnea-linux/popos-rootfs/releases/latest/download/popos-rootfs."
+                            "split.ab", filename="/tmp/depthboot-build/popos-rootfs.split.ab")
+                stop_download_progress()
+                print_status("Combining split pop-os rootfs")
+                start_progress()
+                bash("cat /tmp/depthboot-build/popos-rootfs.split.?? > /tmp/depthboot-build/popos-rootfs.tar.xz")
     except URLError:
         print_error("Couldn't download rootfs. Check your internet connection and try again. If the error persists, "
                     "create an issue with the distro and version in the name")
@@ -560,18 +558,27 @@ def start_build(verbose: bool, local_path, kernel_type: str, dev_release: bool, 
 
     bash("sync")  # write all pending changes to usb
 
-    # /mnt/depthboot doesn't unmount on first try and e2fsck throws an error, therefore its unmounted twice
+    # unmount image/device from mnt
     try:
         bash("umount -lf /mnt/depthboot")  # umount mountpoint
     except subprocess.CalledProcessError as error:  # on crostini umount fails for some reason
         if verbose:
             print(error)
     sleep(5)  # wait for umount to finish
-    try:
-        bash("umount -lf /mnt/depthboot")  # umount mountpoint again
-    except subprocess.CalledProcessError as error:  # on crostini umount fails for some reason
-        if verbose:
-            print(error)
+
+    # unmount image/device completely from system
+    if build_options["device"] == "image":
+        try:
+            bash(f"umount -lf {img_mnt}p*")  # umount all partitions from image
+        except subprocess.CalledProcessError as error:  # on crostini umount fails for some reason
+            if verbose:
+                print(error)
+    else:
+        try:
+            bash(f"umount -lf {img_mnt}*")  # umount all partitions from usb/sd-card
+        except subprocess.CalledProcessError as error:  # on crostini umount fails for some reason
+            if verbose:
+                print(error)
 
     if build_options["device"] == "image":
         try:
@@ -596,7 +603,7 @@ def start_build(verbose: bool, local_path, kernel_type: str, dev_release: bool, 
             # rename the image to .bin for the chromeos recovery utility to be able to flash it
             bash(f"mv ./depthboot.img ./depthboot.bin")
 
-        bash(f"losetup -d {img_mnt}")
+        bash(f"losetup -d {img_mnt}")  # unmount image from loop device
         print_header(f"The ready-to-boot Depthboot image is located at {get_full_path('.')}/depthboot.img")
     else:
         print_header(f"USB/SD-card is ready to boot {build_options['distro_name'].capitalize()}")
