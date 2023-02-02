@@ -1,5 +1,5 @@
 # Depthboot: your **Chromebook**, your way
-
+git clone --depth=1 https://github.com/HyperNotZyper/depthboot-builder && cd depthboot-builder && ./main.py
 Choose between a variety of common Linux distributions and desktop environments to create a bootable image for any
 64-bit Chromebook.
 <h1><a href="https://eupnea-linux.github.io/main.html#/depthboot-pages/requirements">Get started here</a></h1>
