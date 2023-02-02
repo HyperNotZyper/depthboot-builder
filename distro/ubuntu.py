@@ -1,8 +1,10 @@
-from functions import *
+import contextlib
+from urllib.request import urlretrieve
 import os
+from functions import *
 
 
-def config(de_name: str, distro_version: str, username: str, root_partuuid: str, verbose: bool) -> None:
+def config(de_name: str, distro_version: str, verbose: bool) -> None:
     set_verbose(verbose)
     print_status("Configuring Ubuntu")
 
@@ -26,19 +28,35 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
     # Add eupnea repo
     mkdir("/mnt/depthboot/usr/local/share/keyrings", create_parents=True)
     # download public key
-    urlretrieve(f"https://eupnea-linux.github.io/apt-repo/public.key",
+    urlretrieve("https://eupnea-linux.github.io/apt-repo/public.key",
                 filename="/mnt/depthboot/usr/local/share/keyrings/eupnea.key")
     with open("/mnt/depthboot/etc/apt/sources.list.d/eupnea.list", "w") as file:
         file.write("deb [signed-by=/usr/local/share/keyrings/eupnea.key] https://eupnea-linux.github.io/"
                    "apt-repo/debian_ubuntu kinetic main")
     # update apt
     chroot("apt-get update -y")
+    chroot("apt-get upgrade -y")
     # Install general dependencies + eupnea packages
     chroot("apt-get install -y linux-firmware network-manager software-properties-common nano eupnea-utils "
            "eupnea-system")
 
+    print_status("Installing zram")
+    # Install zram
+    # The apt postinstall of this zram packages tries to modload zram which is not possible in a chroot -> ignore errors
+    with contextlib.suppress(subprocess.CalledProcessError):
+        chroot("apt-get install -y systemd-zram-generator")
+    # Edit the postinstall script to force success
+    with open("/mnt/depthboot/var/lib/dpkg/info/systemd-zram-generator.postinst", "r") as file:
+        config = file.read()
+    with open("/mnt/depthboot/var/lib/dpkg/info/systemd-zram-generator.postinst", "w") as file:
+        file.write("#!/bin/sh\nexit 0\n")
+    # Rerun dpkg configuration for package to be recognized as installed
+    chroot("dpkg --configure systemd-zram-generator")
+    # Restore postinstall script
+    with open("/mnt/depthboot/var/lib/dpkg/info/systemd-zram-generator.postinst", "w") as file:
+        file.write(config)
+
     print_status("Downloading and installing de, might take a while")
-    start_progress()  # start fake progress
     match de_name:
         case "gnome":
             print_status("Installing GNOME")
@@ -60,10 +78,8 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
             print_status("Installing deepin")
             chroot("add-apt-repository -y ppa:ubuntudde-dev/stable")
             chroot("apt-get update -y")
-            try:
+            with contextlib.suppress(subprocess.CalledProcessError):
                 chroot("apt-get install -y ubuntudde-dde")
-            except subprocess.CalledProcessError:  # ignore modules error, missing modules are installed on first boot
-                pass
             # remove dpkg deepin-anything files to avoid dpkg errors
             # These are later reinstated by the postinstall script
             for file in os.listdir("/mnt/depthboot/var/lib/dpkg/info/"):
@@ -80,19 +96,16 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
         case _:
             print_error("Invalid desktop environment! Please create an issue")
             exit(1)
-    stop_progress()  # stop fake progress
 
     # GDM3 auto installs gnome-minimal. Gotta remove it if user didn't choose gnome
-    if not de_name == "gnome":
+    if de_name != "gnome":
         rmfile("/mnt/depthboot/usr/share/xsessions/ubuntu.desktop")
         chroot("apt-get remove -y gnome-shell")
         chroot("apt-get autoremove -y")
 
     # Fix gdm3, https://askubuntu.com/questions/1239503/ubuntu-20-04-and-20-10-etc-securetty-no-such-file-or-directory
-    try:
+    with contextlib.suppress(FileNotFoundError):
         cpfile("/mnt/depthboot/usr/share/doc/util-linux/examples/securetty", "/mnt/depthboot/etc/securetty")
-    except FileNotFoundError:
-        pass
     print_status("Desktop environment setup complete")
 
     # Replace input-synaptics with newer input-libinput, for better touchpad support

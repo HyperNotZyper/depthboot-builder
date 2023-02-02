@@ -1,12 +1,13 @@
+import contextlib
 from functions import *
+from urllib.request import urlretrieve
 
 
-def config(de_name: str, distro_version: str, username: str, root_partuuid: str, verbose: bool) -> None:
+def config(de_name: str, distro_version: str, verbose: bool) -> None:
     set_verbose(verbose)
     print_status("Configuring Debian")
 
     print_status("Installing dependencies")
-    start_progress()  # start fake progress
     # install apt-add-repository
     chroot("apt-get update -y")
     chroot("apt-get install -y software-properties-common")
@@ -15,21 +16,20 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
     # Add eupnea repo
     mkdir("/mnt/depthboot/usr/local/share/keyrings", create_parents=True)
     # download public key
-    urlretrieve(f"https://eupnea-linux.github.io/apt-repo/public.key",
+    urlretrieve("https://eupnea-linux.github.io/apt-repo/public.key",
                 filename="/mnt/depthboot/usr/local/share/keyrings/eupnea.key")
     with open("/mnt/depthboot/etc/apt/sources.list.d/eupnea.list", "w") as file:
         file.write("deb [signed-by=/usr/local/share/keyrings/eupnea.key] https://eupnea-linux.github.io/"
                    "apt-repo/debian_ubuntu kinetic main")
     # update apt
     chroot("apt-get update -y")
+    chroot("apt-get upgrade -y")
     # Install general dependencies + eupnea packages
-    chroot("apt-get install -y network-manager sudo firmware-linux-free cloud-utils firmware-linux-nonfree "
-           "firmware-iwlwifi iw git")
+    chroot("apt-get install -y network-manager sudo firmware-linux-free firmware-linux-nonfree "
+           "firmware-iwlwifi iw")
     chroot("apt-get install -y eupnea-utils eupnea-system")
-    stop_progress()  # stop fake progress
 
     print_status("Downloading and installing de, might take a while")
-    start_progress()  # start fake progress
     # DEBIAN_FRONTEND=noninteractive skips locale setup questions
     match de_name:
         case "gnome":
@@ -58,23 +58,20 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
         case _:
             print_error("Invalid desktop environment! Please create an issue")
             exit(1)
-    stop_progress()  # stop fake progress
 
-    if not de_name == "cli":
+    if de_name != "cli":
         # Set system to boot to gui
         chroot("systemctl set-default graphical.target")
 
     # GDM3 auto installs gnome-minimal. Remove it if user didn't choose gnome
-    if not de_name == "gnome":
+    if de_name != "gnome":
         rmfile("/mnt/depthboot/usr/share/xsessions/ubuntu.desktop")
         chroot("apt-get remove -y gnome-shell")
         chroot("apt-get autoremove -y")
 
     # Fix gdm3, https://askubuntu.com/questions/1239503/ubuntu-20-04-and-20-10-etc-securetty-no-such-file-or-directory
-    try:
+    with contextlib.suppress(FileNotFoundError):
         cpfile("/mnt/depthboot/usr/share/doc/util-linux/examples/securetty", "/mnt/depthboot/etc/securetty")
-    except FileNotFoundError:
-        pass
     print_status("Desktop environment setup complete")
 
     # Replace input-synaptics with newer input-libinput, for better touchpad support
@@ -82,7 +79,7 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
     chroot("apt-get remove -y xserver-xorg-input-synaptics")
     chroot("apt-get install -y xserver-xorg-input-libinput")
 
-    # TODO: Pre-update python3 to 3.10
+    # TODO: Pre-update python3 to 3.10 on stable
     # Pre-updating to python3.10 breaks the gnome first time installer...
     '''
     # Pre-update python to 3.10 as some postinstall scripts require it

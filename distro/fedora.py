@@ -1,32 +1,26 @@
 from functions import *
 
 
-def config(de_name: str, distro_version: str, username: str, root_partuuid: str, verbose: bool) -> None:
+def config(de_name: str, distro_version: str, verbose: bool) -> None:
     set_verbose(verbose)
     print_status("Configuring Fedora")
 
     print("Installing dependencies")
-    start_progress()  # start fake progress
     chroot(f"dnf install -y --releasever={distro_version} fedora-release")  # update repos list
     # Add eupnea repo
     chroot("dnf config-manager --add-repo https://eupnea-linux.github.io/rpm-repo/eupnea.repo")
-    # Add RPMFusion repos
-    chroot(f"dnf install -y https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-"
-           f"{distro_version}.noarch.rpm")
-    chroot(f"dnf install -y https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-"
-           f"{distro_version}.noarch.rpm")
     chroot("dnf update --refresh -y")  # update repos
     chroot("dnf upgrade -y")  # upgrade the whole system
+    # Install eupnea packages
+    chroot("dnf install -y eupnea-system eupnea-utils")
     # Install core packages
     chroot("dnf group install -y 'Core'")
     # Install firmware packages
     chroot("dnf group install -y 'Hardware Support'")
     chroot("dnf group install -y 'Common NetworkManager Submodules'")
     chroot("dnf install -y linux-firmware")
-    stop_progress()  # stop fake progress
 
     print_status("Downloading and installing DE, might take a while")
-    start_progress()  # start fake progress
     match de_name:
         case "gnome":
             print_status("Installing GNOME")
@@ -59,13 +53,13 @@ def config(de_name: str, distro_version: str, username: str, root_partuuid: str,
         case _:
             print_error("Invalid desktop environment! Please create an issue")
             exit(1)
-    stop_progress()  # stop fake progress
 
-    if not de_name == "cli":
+    if de_name != "cli":
         # Set system to boot to gui
         chroot("systemctl set-default graphical.target")
     print_status("Desktop environment setup complete")
 
+    # TODO: Remove for v1.2.0 release
     print_status("Adding fedora modules")
     with open("/mnt/depthboot/etc/modules-load.d/eupnea-modules.conf", "a") as f:
         f.write("\n# Fedora modules\nsunrpc\n")

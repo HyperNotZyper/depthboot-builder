@@ -1,7 +1,7 @@
 name: Testing builds
 on:
-#  push:
-#    branches: [ "main" ]
+  schedule:
+    - cron: "10 0 * * *" # run at the start of every day after functions.py is updated
   workflow_dispatch:
 
 concurrency:
@@ -30,10 +30,10 @@ jobs:
         run: sudo apt-get install -y cgpt vboot-kernel-utils parted
 
       - name: Copy testing script to root
-        run: cp ./.github/repo-scripts/build-tests/ubuntu-test.py ubuntu-test.py
+        run: cp ./.github/scripts/build-tests/ubuntu-test.py ubuntu-test.py
 
       - name: Testing Ubuntu builds
-        run: python3 ./ubuntu-test.py
+        run: sudo python3 ./ubuntu-test.py
 
       - name: Uploading results as artifact
         uses: actions/upload-artifact@v2
@@ -64,10 +64,10 @@ jobs:
         run: sudo apt-get install -y cgpt vboot-kernel-utils parted debootstrap
 
       - name: Copy testing script to root
-        run: cp ./.github/repo-scripts/build-tests/debian-test.py debian-test.py
+        run: cp ./.github/scripts/build-tests/debian-test.py debian-test.py
 
       - name: Testing Debian builds
-        run: python3 ./debian-test.py
+        run: sudo python3 ./debian-test.py
 
       - name: Uploading results as artifact
         uses: actions/upload-artifact@v2
@@ -95,13 +95,13 @@ jobs:
           fetch-depth: 1
 
       - name: Installing dependencies
-        run: sudo apt-get install -y cgpt vboot-kernel-utils parted arch-install-scripts
+        run: sudo apt-get install -y cgpt vboot-kernel-utils parted
 
       - name: Copy testing script to root
-        run: cp ./.github/repo-scripts/build-tests/arch-test.py arch-test.py
+        run: cp ./.github/scripts/build-tests/arch-test.py arch-test.py
 
       - name: Testing Arch builds
-        run: python3 ./arch-test.py
+        run: sudo python3 ./arch-test.py
 
       - name: Uploading results as artifact
         uses: actions/upload-artifact@v2
@@ -132,10 +132,10 @@ jobs:
         run: sudo apt-get install -y cgpt vboot-kernel-utils parted
 
       - name: Copy testing script to root
-        run: cp ./.github/repo-scripts/build-tests/fedora-test.py fedora-test.py
+        run: cp ./.github/scripts/build-tests/fedora-test.py fedora-test.py
 
       - name: Testing Fedora builds
-        run: python3 ./fedora-test.py
+        run: sudo python3 ./fedora-test.py
 
       - name: Uploading results as artifact
         uses: actions/upload-artifact@v2
@@ -145,42 +145,42 @@ jobs:
           path: |
             results.txt
 
-    test-popos:
-      runs-on: ubuntu-22.04
-      steps:
-        - name: Maximizing build space
-          uses: easimon/maximize-build-space@master
-          with:
-            temp-reserve-mb: 11264
-            swap-size-mb: 1
-            remove-dotnet: 'true'
-            remove-android: 'true'
-            remove-haskell: 'true'
+  test-pop-os:
+    runs-on: ubuntu-22.04
+    steps:
+      #    - name: Maximizing build space
+      #     uses: easimon/maximize-build-space@master
+      #      with:
+      #        temp-reserve-mb: 11264
+      #         swap-size-mb: 1000
+      #      remove-dotnet: 'true'
+      #      remove-android: 'true'
+      #        remove-haskell: 'true'
 
-        - name: Checking out repository code
-          uses: actions/checkout@v3
-          with:
-            fetch-depth: 1
+      - name: Checking out repository code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
 
-        - name: Installing dependencies
-          run: sudo apt-get install -y cgpt vboot-kernel-utils parted
+      - name: Installing dependencies
+        run: sudo apt-get install -y cgpt vboot-kernel-utils parted
 
-        - name: Copy testing script to root
-          run: cp ./.github/repo-scripts/build-tests/popos-test.py popos-test.py
+      - name: Copy testing script to root
+        run: cp ./.github/scripts/build-tests/pop-os-test.py pop-os-test.py
 
-        - name: Testing PopOS build
-          run: python3 ./popos-test.py
+      - name: Testing PopOS build
+        run: sudo python3 ./pop-os-test.py
 
-        - name: Uploading results as artifact
-          uses: actions/upload-artifact@v2
-          with:
-            name: results-popos
-            retention-days: 1
-            path: |
-              results.txt
+      - name: Uploading results as artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: results-pop-os
+          retention-days: 1
+          path: |
+            results.txt
 
   evaluate-results:
-    needs: [ test-ubuntu, test-debian, test-arch, test-fedora, test-popos ]
+    needs: [ test-ubuntu, test-debian, test-arch, test-fedora, test-pop-os ]
     runs-on: ubuntu-22.04
     steps:
       - name: Checking out repository code
@@ -194,7 +194,7 @@ jobs:
       - name: Evaluating results
         # This checks if any of the results files are non-empty and fails if one is
         run: |
-          for file in ./results-*/results.txt
+          for file in ./results-*/results*.txt
           do 
             if [ -s $file ]
               then
@@ -203,3 +203,19 @@ jobs:
                 exit 1
             fi
           done
+
+      - name: Combining sizes into one json file
+        run: python3 ./.github/scripts/build-tests/combine_sizes.py
+
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          # Optional. Commit message for the created commit.
+          # Defaults to "Apply automatic changes"
+          commit_message: Update os_sizes.json
+
+          # Optional glob pattern of files which should be added to the commit
+          # Defaults to all (.)
+          # See the `pathspec`-documentation for git
+          # - https://git-scm.com/docs/git-add#Documentation/git-add.txt-ltpathspecgt82308203
+          # - https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec
+          file_pattern: 'os_sizes.json'
